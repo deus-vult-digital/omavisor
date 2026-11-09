@@ -1,4 +1,20 @@
-# Omavisor
+<h1 align="center"><img src="assets/banner.png" alt="Omavisor" width="100%"></h1>
+
+<p align="center">
+  Omarchy 4 shell plugin · by <a href="https://deusvult.digital">Deus Vult Digital</a>
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#settings">Settings</a> ·
+  <a href="#live-activities-ipc">Live activities</a> ·
+  <a href="#recipes">Recipes</a> ·
+  <a href="#removal">Removal</a>
+</p>
+
+<p align="center">
+  <img src="preview.png" alt="Omavisor's pill in the center of the bar with the hub open on Now playing: album art, transport and the wave display" width="100%">
+</p>
 
 A minimal notch in the center of the Omarchy 4 bar. At rest, Omavisor is just
 the clock; while music plays, the album art sits beside it (the pill keeps its

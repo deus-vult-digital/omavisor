@@ -13,10 +13,12 @@
 # and every omarchy-shell call made here, reach only it), D-Bus session bus
 # and X display (Xvfb). The clipboard overlay is disabled there (it pkills
 # every wl-paste watcher of the user). Shared: the system bus (its polkit
-# agent is refused, the real one holds the session) and the network. No sudo. Xvfb has no layer shell, so the bar is not drawn
-# and the first-run card can't be clicked; Replace is done with the same
-# commands and backup file the card writes (lib/Layout.js makeBackup), and the
-# restore is Omavisor's own (bin/omavisor restore). KEEP=1 keeps the temp dir.
+# agent is refused, the real one holds the session) and the network. No sudo.
+# Xvfb has no layer shell, so the bar is not drawn and the first-run card
+# can't be clicked; Replace runs the card's own plan (the installed copy's
+# lib/Layout.js makeBackup and replacePlan, through `qml`) in the card's
+# order, on Omarchy 4.0 and 4.5 alike, and the restore is Omavisor's own
+# (bin/omavisor restore). KEEP=1 keeps the temp dir.
 set -euo pipefail
 
 if [[ ${1:-} == --inner ]]; then
@@ -44,10 +46,15 @@ if [[ ${1:-} == --inner ]]; then
     for _ in $(seq 40); do "$@" >/dev/null 2>&1 && return 0; sleep 0.25; done
     fail "$what"
   }
-  center() { omarchy-shell shell listShellConfig | jq -c '[.bar.layout.center[] | if type == "object" then .id else . end]'; }
+  # The middle of the bar: 4.5's centerBegin, center and centerEnd (4.0 has only center).
+  center() { omarchy-shell shell listShellConfig | jq -c '[(.bar.layout.centerBegin // [])[], (.bar.layout.center // [])[], (.bar.layout.centerEnd // [])[] | if type == "object" then .id else . end]'; }
+  # Left out: ~/.config/superwhisper, which Superwhisper's own `superwhisper`
+  # wrapper creates (an empty hypr-block.lua) whenever it runs, here when the
+  # dictation module asks it for its status on a host that has it; and empty
+  # bar sections, which Omarchy's `bar` commands write out (`"tray": []`).
   snapshot() {
-    (cd "$HOME" && find . -path ./.cache -prune -o -printf '%y %p\n' | sort)
-    jq -S 'del(.. | nulls)' "$shell_json"
+    (cd "$HOME" && find . -path ./.cache -prune -o -path ./.config/superwhisper -prune -o -printf '%y %p\n' | sort)
+    jq -S 'del(.. | nulls) | if .bar.layout then .bar.layout |= with_entries(select(.value != [])) else . end' "$shell_json"
   }
 
   read -r display < <(Xvfb -displayfd 1 -screen 0 1920x1080x24 -nolisten tcp 2>"$root/xvfb.log" & echo "$!" >"$root/xvfb.pid")
@@ -71,41 +78,64 @@ if [[ ${1:-} == --inner ]]; then
   [[ -d $plugin/.git && ! -L $plugin ]] || fail "not cloned into $plugin"
   omarchy plugin validate "$plugin" || fail "installed copy does not validate"
   wait_for "plugin not enabled" bash -c "omarchy-shell shell listPlugins | jq -e '.[] | select(.id == \"$id\") | .enabled'"
-  center | jq -e --arg id "$id" 'index($id) != null' >/dev/null || fail "Omavisor not in the center: $(center)"
+  center | jq -e --arg id "$id" 'index($id) != null' >/dev/null || fail "Omavisor not in the middle of the bar: $(center)"
   want=$(jq -r .version "$plugin/manifest.json")
   wait_for "IPC target omavisor not answering" bash -c "[[ \$(omarchy-shell dev.deusvult.omavisor version) == '$want' ]]"
-  pass "omarchy plugin add --enable --yes: cloned, validated, enabled, in the center $(center), omavisor version $want"
+  pass "omarchy plugin add --enable --yes: cloned, validated, enabled, in the middle $(center), omavisor version $want"
   omarchy-shell dev.deusvult.omavisor push '{"id":"fi:test","title":"Fresh install","ttl":60}' >/dev/null
   omarchy-shell dev.deusvult.omavisor list | jq -e 'any(.[]; .id == "fi:test")' >/dev/null || fail "push not listed"
   omarchy-shell dev.deusvult.omavisor end fi:test >/dev/null
   pass "live activity push/list/end"
 
-  # 2. Replace clock & weather, as the first-run card does it.
-  config=$(omarchy-shell shell listShellConfig)
+  # 2. Replace clock & weather, as the first-run card does it. The card can't
+  # be clicked (no layer shell under Xvfb), so its own plan is used: the
+  # installed copy's lib/Layout.js (makeBackup, replacePlan) run by `qml`,
+  # then applied in the card's order (LayoutModule.replace): backup, own
+  # settings, the steps, and on 4.0 the anchor.
+  omarchy-shell shell listShellConfig >"$root/config.json"
+  cat >"$root/plan.qml" <<EOF
+import QtQuick
+import "file://$plugin/lib/Layout.js" as Layout
+QtObject {
+  Component.onCompleted: {
+    const xhr = new XMLHttpRequest()
+    xhr.open("GET", "file://$root/config.json", false)
+    xhr.send()
+    const config = JSON.parse(xhr.responseText)
+    console.log(JSON.stringify({
+      backup: Layout.makeBackup(config, "$id", new Date().toISOString()),
+      plan: Layout.replacePlan(config, "$id")
+    }))
+    Qt.quit()
+  }
+}
+EOF
+  QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    /usr/lib/qt6/bin/qml "$root/plan.qml" 2>&1 | sed -n 's/^[^{]*\({"backup".*\)$/\1/p' >"$root/plan.json"
+  jq -e '.plan.steps' "$root/plan.json" >/dev/null || fail "no Replace plan from lib/Layout.js (see $root/plan.json)"
   mkdir -p "$state"
-  jq --arg id "$id" --arg now "$(date -u +%FT%TZ)" '
-    def eid: if type == "object" then .id else . end;
-    .bar as $bar
-    | ([["left", "center", "right"][] as $s | ($bar.layout[$s] // []) | to_entries[]
-        | select(.value | eid == $id) | {section: $s, index: .key}] | first) as $at
-    | {version: 1, savedAt: $now, centerAnchor: ($bar.centerAnchor // null),
-       center: $bar.layout.center, omavisor: $at,
-       omavisorEntry: ($bar.layout[$at.section][$at.index])}
-  ' <<<"$config" >"$state/layout-backup.json"
-  index=$(jq --arg id "$id" '[.bar.layout.center[] | if type == "object" then .id else . end
-    | select(. != $id)] | (index("omarchy.clock") // length)' <<<"$config")
-  omarchy bar set "$id" mode '"replace"' --json >/dev/null
-  omarchy plugin disable omarchy.clock >/dev/null
-  omarchy plugin disable omarchy.weather >/dev/null
-  omarchy bar move "$id" --section center --index "$index" >/dev/null
-  shell_backup="$shell_json.bak.$(date +%s)"
-  cp -p -- "$shell_json" "$shell_backup"
-  t=$(mktemp "$shell_json.XXXXXX")
-  jq -S --arg a "$id" '.bar.centerAnchor = $a' "$shell_backup" >"$t" && chmod --reference="$shell_json" "$t" && mv -f "$t" "$shell_json"
-  omarchy-shell shell reloadConfig >/dev/null
-  jq --arg b "$shell_backup" '.shellBackup = $b' "$state/layout-backup.json" >"$state/b" && mv "$state/b" "$state/layout-backup.json"
-  wait_for "replace did not take" bash -c "omarchy-shell shell listShellConfig | jq -e '.bar.centerAnchor == \"$id\" and ([.bar.layout.center[] | if type == \"object\" then .id else . end] | index(\"omarchy.clock\") == null)'"
-  pass "replaced: center $(center), anchor $id"
+  jq '.backup' "$root/plan.json" >"$state/layout-backup.json"
+  while IFS= read -r key; do
+    omarchy bar set "$id" "$key" "$(jq -c --arg k "$key" '.plan.settings[$k]' "$root/plan.json")" --json >/dev/null
+  done < <(jq -r '.plan.settings | keys[]' "$root/plan.json")
+  while IFS= read -r step; do
+    eval "set -- $step"
+    "$@" >/dev/null || fail "replace step failed: $*"
+  done < <(jq -r '.plan.steps[] | @sh' "$root/plan.json")
+  if jq -e '.plan.anchorNeeded' "$root/plan.json" >/dev/null; then
+    shell_backup="$shell_json.bak.$(date +%s)"
+    cp -p -- "$shell_json" "$shell_backup"
+    t=$(mktemp "$shell_json.XXXXXX")
+    jq -S --arg a "$id" '.bar.centerAnchor = $a' "$shell_backup" >"$t" && chmod --reference="$shell_json" "$t" && mv -f "$t" "$shell_json"
+    omarchy-shell shell reloadConfig >/dev/null
+    jq --arg b "$shell_backup" '.shellBackup = $b' "$state/layout-backup.json" >"$state/b" && mv "$state/b" "$state/layout-backup.json"
+    wait_for "replace did not take" bash -c "omarchy-shell shell listShellConfig | jq -e '.bar.centerAnchor == \"$id\" and ([.bar.layout.center[] | if type == \"object\" then .id else . end] | index(\"omarchy.clock\") == null)'"
+    pass "replaced (4.0): center $(center), anchor $id"
+  else
+    # 4.5: Omavisor alone in the center box.
+    wait_for "replace did not take" bash -c "omarchy-shell shell listShellConfig | jq -e '[.bar.layout.center[] | if type == \"object\" then .id else . end] == [\"$id\"]'"
+    pass "replaced (4.5): middle $(center), Omavisor alone in center"
+  fi
   # Omavisor reads a backup made while it runs; a shell restart also proves
   # the keepLoaded service comes back.
   stop_shell; start_shell

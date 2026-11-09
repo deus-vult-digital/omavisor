@@ -4,6 +4,17 @@ All notable changes to Omavisor. Versions follow [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-09
+
+### Added
+- README header: the Omavisor banner (`assets/banner.png`, from
+  `assets/banner.svg`) and the preview, with links to the main sections.
+
+### Changed
+- `test/fresh-install.sh` works on Omarchy 4.5 (Omavisor lands in
+  `centerEnd`) and runs the first-run card's own Replace plan from
+  `lib/Layout.js` instead of a copy of it.
+
 ## [0.4.1] - 2026-11-09
 
 The first public release, at github.com/deus-vult-digital/omavisor.
