@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Thin wrapper over Omavisor's IPC target (SPEC.md section 8).
+#
+#   omavisor push '<json>'            omavisor update <id> '<json-patch>'
+#   omavisor end <id|top> [success|error]
+#   omavisor list                     omavisor timer <minutes> [label…]
+#   omavisor expand [tab]             omavisor collapse        omavisor version
+#   omavisor restore                  omavisor layout
+#   omavisor format                   omavisor dnd             omavisor stopRecording
+#   omavisor scroll up|down           omavisor workspace next|prev
+#   omavisor volume up|down
+#
+# Quickshell IPC calls take exactly the arguments a method declares, so the
+# calls with optional parts (end, timer, expand) take them as one
+# space-separated argument; this wrapper joins them.
+set -euo pipefail
+
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+(( $# > 0 )) || usage 1
+method=$1
+shift
+
+case $method in
+  -h | --help) usage ;;
+  end | timer | expand) exec omarchy-shell dev.deusvult.omavisor "$method" "$*" ;;
+  push | list | collapse | version | update | layout | format | dnd | stopRecording | scroll | workspace | volume) exec omarchy-shell dev.deusvult.omavisor "$method" "$@" ;;
+  restore)
+    # Restore answers at once and runs Omarchy's bar commands in the shell;
+    # wait for them, then say how it went and what is left to do.
+    # field <name> <json>: one top-level string/boolean field (jq when there).
+    field() {
+      if command -v jq >/dev/null 2>&1; then
+        jq -r --arg k "$1" '.[$k] | tostring' <<<"$2"
+      else
+        sed -n -E "s/.*\"$1\":(\"(([^\"\\\\]|\\\\.)*)\"|(true|false)).*/\\2\\4/p" <<<"$2" | sed -E 's/\\(.)/\1/g'
+      fi
+    }
+    answer=$(omarchy-shell dev.deusvult.omavisor restore)
+    [[ $answer == ok ]] || { echo "omavisor: $answer" >&2; exit 1; }
+    status=""
+    for _ in $(seq 300); do
+      status=$(omarchy-shell dev.deusvult.omavisor layout) || status='{"busy":"…"}'
+      [[ -z $(field busy "$status") ]] && break
+      sleep 0.2
+    done
+    if [[ -n $(field busy "$status") ]]; then
+      echo "omavisor: restore still running after 60 s; check with: omarchy-shell dev.deusvult.omavisor layout" >&2
+      exit 1
+    fi
+    field message "$status"
+    anchor=$(field anchorCommand "$status")
+    if [[ -n $anchor ]]; then
+      echo "One step left, the bar's center widget:"
+      echo "  $anchor"
+    fi
+    [[ $(field failed "$status") == false ]]
+    ;;
+  *) echo "omavisor: unknown command: $method" >&2; usage 1 ;;
+esac

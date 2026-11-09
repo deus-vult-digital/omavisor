@@ -1,0 +1,75 @@
+{
+  "_comment": "Omavisor recipe, not installed by Omavisor: merge the \"hooks\" object into ~/.claude/settings.json (or a project's .claude/settings.json). Each hook runs recipes/claude-code-hook.sh from Omavisor's plugin folder (edit the path if Omavisor lives elsewhere). When a session waits for you at a permission prompt or a question it shows urgent, blooms and pulses the notch until Claude Code reports it went on (a tool result, the next prompt or Stop; Claude Code has no hook for a prompt being answered); when it finishes a turn the activity ends. Needs omarchy-shell and jq.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.config/omarchy/plugins/dev.deusvult.omavisor/recipes/claude-code-hook.sh\"; [ -x \"$f\" ] && \"$f\" resume; true"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.config/omarchy/plugins/dev.deusvult.omavisor/recipes/claude-code-hook.sh\"; [ -x \"$f\" ] && \"$f\" notification; true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.config/omarchy/plugins/dev.deusvult.omavisor/recipes/claude-code-hook.sh\"; [ -x \"$f\" ] && \"$f\" resume; true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.config/omarchy/plugins/dev.deusvult.omavisor/recipes/claude-code-hook.sh\"; [ -x \"$f\" ] && \"$f\" stop; true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.config/omarchy/plugins/dev.deusvult.omavisor/recipes/claude-code-hook.sh\"; [ -x \"$f\" ] && \"$f\" end; true"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.config/omarchy/plugins/dev.deusvult.omavisor/recipes/claude-code-hook.sh\"; [ -x \"$f\" ] && \"$f\" resume; true"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.config/omarchy/plugins/dev.deusvult.omavisor/recipes/claude-code-hook.sh\"; [ -x \"$f\" ] && \"$f\" fail; true"
+          }
+        ]
+      }
+    ]
+  }
+}

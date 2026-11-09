@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Read-only: CI only checks out and runs checks.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # Arch, like Omarchy: qt6-declarative ships qmllint and qmltestrunner.
+    # Pinned by digest (archlinux:latest on 2026-11-08); bump it on purpose.
+    container: archlinux@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9
+    steps:
+      - name: Install tools
+        # nodejs: actions/checkout is a JS action and archlinux has no node.
+        run: pacman -Syu --noconfirm --needed git jq nodejs shellcheck qt6-declarative
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Manifest is valid JSON with the required fields
+        run: |
+          jq -e '
+            .schemaVersion == 1
+            and (.id | type == "string" and test("^[a-z0-9][a-z0-9.-]*$") and (startswith("omarchy.") | not))
+            and (.name | type == "string" and length > 0)
+            and (.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+"))
+            and (.kinds | type == "array" and length > 0)
+            and (.entryPoints | type == "object")
+            and ([.entryPoints[] | select(startswith("/") or contains(".."))] | length == 0)
+            and (.barWidget.defaultSection | IN("left", "centerBegin", "center", "centerEnd", "right", "tray"))
+          ' manifest.json
+          for entry in $(jq -r '.entryPoints[]' manifest.json); do
+            test -f "$entry" || { echo "missing entry point: $entry"; exit 1; }
+          done
+
+      - name: Marketplace repository rules
+        # omacom/omarchy-plugin-marketplace (SUBMISSION.md, build-catalog.mjs):
+        # one manifest at the root, a root README and license file, and an
+        # optional root preview of at most 50 MB and 40 megapixels.
+        shell: bash
+        run: |
+          test "$(find . -name .git -prune -o -name manifest.json -print | wc -l)" = 1
+          shopt -s nocaseglob nullglob
+          readmes=([r]eadme [r]eadme.*) licenses=([l]icen[cs]e [l]icen[cs]e.* [c]opying [c]opying.*)
+          [ ${#readmes[@]} -gt 0 ] || { echo "no root README"; exit 1; }
+          [ ${#licenses[@]} -gt 0 ] || { echo "no root license file"; exit 1; }
+          for p in preview.png preview.jpg preview.jpeg preview.webp preview.avif; do
+            [ -f "$p" ] || continue
+            [ "$(stat -c %s "$p")" -le $((50 * 1024 * 1024)) ] || { echo "$p is over 50 MB"; exit 1; }
+            if [ "$p" = preview.png ]; then
+              w=$((16#$(od -An -tx1 -j16 -N4 "$p" | tr -d ' \n')))
+              h=$((16#$(od -An -tx1 -j20 -N4 "$p" | tr -d ' \n')))
+              [ $((w * h)) -le 40000000 ] || { echo "$p is ${w}x${h}, over 40 megapixels"; exit 1; }
+            fi
+          done
+
+      - name: No symlinks in the plugin
+        run: test -z "$(find . -name .git -prune -o -type l -print -quit)"
+
+      - name: qmllint
+        run: QMLLINT=/usr/lib/qt6/bin/qmllint test/lint.sh
+
+      - name: qmltestrunner
+        run: QT_QPA_PLATFORM=offscreen /usr/lib/qt6/bin/qmltestrunner -input test/
+
+      - name: shellcheck
+        shell: bash
+        run: |
+          mapfile -t scripts < <(find . \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*'; if [ -f bin/omavisor ]; then echo bin/omavisor; fi)
+          if [ ${#scripts[@]} -gt 0 ]; then shellcheck "${scripts[@]}"; fi
