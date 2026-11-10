@@ -4,6 +4,13 @@ All notable changes to Omavisor. Versions follow [semver](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-10
+
+### Changed
+- `preview.png` is staged on the Deus Vult Green Screen theme
+  (`deus-vult-green-screen`). In `docs/preview/stage.sh` the demo cover now
+  uses the staged theme's colours instead of a fixed Tokyo Night gradient.
+
 ## [0.4.2] - 2026-11-09
 
 ### Added

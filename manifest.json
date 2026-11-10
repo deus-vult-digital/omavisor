@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "dev.deusvult.omavisor",
   "name": "Omavisor",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "author": "Deus Vult Digital",
   "license": "MIT",
   "description": "A Dynamic-Island hub in the center of the Omarchy bar: clock, weather, media, capture, timers, updates, and live activities any script can push.",
